@@ -3,8 +3,11 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import Icon from '@/components/ui/icon';
+import { useCart } from '@/contexts/CartContext';
 
 const Header: React.FC = () => {
+  const { totalItems } = useCart();
+
   return (
     <header className="sticky top-0 z-50 bg-white border-b shadow-sm">
       <div className="container flex items-center justify-between h-16 px-4 mx-auto">
@@ -27,8 +30,13 @@ const Header: React.FC = () => {
         
         <div className="flex items-center space-x-3">
           <Link to="/cart">
-            <Button variant="outline" size="icon">
+            <Button variant="outline" size="icon" className="relative">
               <Icon name="ShoppingCart" className="w-5 h-5" />
+              {totalItems > 0 && (
+                <span className="absolute -top-2 -right-2 flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-primary rounded-full">
+                  {totalItems}
+                </span>
+              )}
             </Button>
           </Link>
           <Link to="/login">
