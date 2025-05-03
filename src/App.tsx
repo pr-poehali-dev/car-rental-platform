@@ -10,6 +10,9 @@ import Catalog from "./pages/Catalog";
 import CarDetail from "./pages/CarDetail";
 import Cart from "./pages/Cart";
 import NotFound from "./pages/NotFound";
+import AdminDashboard from "./pages/admin/Dashboard";
+import AdminCars from "./pages/admin/Cars";
+import AdminLayout from "./components/admin/AdminLayout";
 
 const queryClient = new QueryClient();
 
@@ -21,10 +24,18 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <Routes>
+            {/* Клиентские маршруты */}
             <Route path="/" element={<Index />} />
             <Route path="/catalog" element={<Catalog />} />
             <Route path="/car/:id" element={<CarDetail />} />
             <Route path="/cart" element={<Cart />} />
+            
+            {/* Административные маршруты */}
+            <Route path="/admin" element={<AdminLayout />}>
+              <Route index element={<AdminDashboard />} />
+              <Route path="cars" element={<AdminCars />} />
+            </Route>
+            
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>
