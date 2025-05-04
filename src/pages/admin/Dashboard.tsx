@@ -1,55 +1,59 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Icon from '@/components/ui/icon';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
+import { dashboardApi } from '@/lib/api';
+import { Booking, Car, CarStats, BookingStats, RevenueStats } from '@/types/admin';
+import { Skeleton } from '@/components/ui/skeleton';
 
 const AdminDashboard: React.FC = () => {
-  // Данные для дашборда (в реальном приложении здесь будут запросы к API)
-  const stats = [
-    { 
-      title: 'Автомобили', 
-      value: '24', 
-      change: '+2', 
-      icon: 'Car', 
-      color: 'bg-blue-100 text-blue-700',
-      link: '/admin/cars'
-    },
-    { 
-      title: 'Активные бронирования', 
-      value: '18', 
-      change: '+5', 
-      icon: 'CalendarCheck', 
-      color: 'bg-green-100 text-green-700',
-      link: '/admin/bookings'
-    },
-    { 
-      title: 'Пользователи', 
-      value: '156', 
-      change: '+12', 
-      icon: 'Users', 
-      color: 'bg-purple-100 text-purple-700',
-      link: '/admin/users'
-    },
-    { 
-      title: 'Доход за месяц', 
-      value: '324 500 ₽', 
-      change: '+15%', 
-      icon: 'BarChart', 
-      color: 'bg-amber-100 text-amber-700',
-      link: '/admin/reports'
-    }
-  ];
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   
-  const recentBookings = [
-    { id: 'B-2505', customer: 'Иванов Александр', car: 'BMW X5', status: 'active', date: '04.05.2025' },
-    { id: 'B-2504', customer: 'Петрова Елена', car: 'Toyota Camry', status: 'pending', date: '04.05.2025' },
-    { id: 'B-2503', customer: 'Сидоров Дмитрий', car: 'Mercedes E-Class', status: 'completed', date: '03.05.2025' },
-    { id: 'B-2502', customer: 'Козлова Мария', car: 'Audi A6', status: 'canceled', date: '02.05.2025' },
-    { id: 'B-2501', customer: 'Новиков Игорь', car: 'KIA Sportage', status: 'completed', date: '01.05.2025' },
-  ];
+  // Состояния для данных
+  const [carStats, setCarStats] = useState<CarStats | null>(null);
+  const [bookingStats, setBookingStats] = useState<BookingStats | null>(null);
+  const [userStats, setUserStats] = useState<{ total: number; change: number } | null>(null);
+  const [revenueStats, setRevenueStats] = useState<RevenueStats | null>(null);
+  const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
+  const [popularCars, setPopularCars] = useState<{ car: Car; occupancyRate: number }[]>([]);
   
+  // Загрузка данных при монтировании компонента
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      try {
+        setLoading(true);
+        
+        // Параллельная загрузка данных
+        const [stats, bookings, cars] = await Promise.all([
+          dashboardApi.getStats(),
+          dashboardApi.getRecentBookings(),
+          dashboardApi.getPopularCars()
+        ]);
+        
+        // Обновление состояний
+        setCarStats(stats.cars);
+        setBookingStats(stats.bookings);
+        setUserStats(stats.users);
+        setRevenueStats(stats.revenue);
+        setRecentBookings(bookings);
+        setPopularCars(cars);
+        
+        setError(null);
+      } catch (err) {
+        console.error('Failed to fetch dashboard data:', err);
+        setError('Не удалось загрузить данные. Пожалуйста, попробуйте позже.');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchDashboardData();
+  }, []);
+  
+  // Вспомогательные функции для отображения
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'active': return 'bg-green-100 text-green-700';
@@ -69,6 +73,77 @@ const AdminDashboard: React.FC = () => {
       default: return status;
     }
   };
+  
+  // Заглушка для данных во время загрузки
+  const renderSkeleton = () => (
+    <div className="animate-pulse space-y-4">
+      <div className="h-8 bg-gray-200 rounded"></div>
+      <div className="grid gap-6 mb-8 md:grid-cols-2 lg:grid-cols-4">
+        {Array(4).fill(0).map((_, i) => (
+          <div key={i} className="h-40 bg-gray-200 rounded"></div>
+        ))}
+      </div>
+      <div className="grid gap-6 mb-8 md:grid-cols-2">
+        <div className="h-80 bg-gray-200 rounded"></div>
+        <div className="h-80 bg-gray-200 rounded"></div>
+      </div>
+    </div>
+  );
+  
+  // Если загрузка - показываем скелет
+  if (loading) {
+    return renderSkeleton();
+  }
+  
+  // Если ошибка - показываем сообщение
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center p-8">
+        <Icon name="AlertCircle" className="h-12 w-12 text-red-500 mb-4" />
+        <h3 className="text-xl font-medium mb-2">Ошибка загрузки данных</h3>
+        <p className="text-gray-500 mb-4">{error}</p>
+        <Button onClick={() => window.location.reload()}>
+          Попробовать снова
+        </Button>
+      </div>
+    );
+  }
+  
+  // Строим статистические карточки из данных API
+  const stats = [
+    { 
+      title: 'Автомобили', 
+      value: carStats?.total.toString() || '0', 
+      change: `+${carStats?.change || 0}`, 
+      icon: 'Car', 
+      color: 'bg-blue-100 text-blue-700',
+      link: '/admin/cars'
+    },
+    { 
+      title: 'Активные бронирования', 
+      value: bookingStats?.active.toString() || '0', 
+      change: `+${bookingStats?.change || 0}`, 
+      icon: 'CalendarCheck', 
+      color: 'bg-green-100 text-green-700',
+      link: '/admin/bookings'
+    },
+    { 
+      title: 'Пользователи', 
+      value: userStats?.total.toString() || '0', 
+      change: `+${userStats?.change || 0}`, 
+      icon: 'Users', 
+      color: 'bg-purple-100 text-purple-700',
+      link: '/admin/users'
+    },
+    { 
+      title: 'Доход за месяц', 
+      value: `${revenueStats?.current.toLocaleString() || 0} ${revenueStats?.currency || '₽'}`, 
+      change: `+${revenueStats?.change || 0}%`, 
+      icon: 'BarChart', 
+      color: 'bg-amber-100 text-amber-700',
+      link: '/admin/reports'
+    }
+  ];
   
   return (
     <div>
@@ -117,23 +192,39 @@ const AdminDashboard: React.FC = () => {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {recentBookings.map((booking, index) => (
-                <div key={index} className="flex items-center justify-between border-b pb-3 last:border-0 last:pb-0">
-                  <div className="flex items-center">
-                    <div className="mr-4">
-                      <span className="text-sm font-medium">#{booking.id}</span>
-                      <p className="text-xs text-gray-500">{booking.date}</p>
+              {recentBookings.length > 0 ? (
+                recentBookings.map((booking, index) => (
+                  <div key={index} className="flex items-center justify-between border-b pb-3 last:border-0 last:pb-0">
+                    <div className="flex items-center">
+                      <div className="mr-4">
+                        <span className="text-sm font-medium">#{typeof booking.id === 'string' ? booking.id : 'Н/Д'}</span>
+                        <p className="text-xs text-gray-500">
+                          {new Date(booking.createdAt).toLocaleDateString('ru-RU')}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-sm font-medium">
+                          {typeof booking.customer === 'object' 
+                            ? booking.customer.name 
+                            : 'Клиент'}
+                        </span>
+                        <p className="text-xs text-gray-500">
+                          {typeof booking.car === 'object' 
+                            ? `${booking.car.brand} ${booking.car.model}` 
+                            : 'Автомобиль'}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <span className="text-sm font-medium">{booking.customer}</span>
-                      <p className="text-xs text-gray-500">{booking.car}</p>
-                    </div>
+                    <span className={`px-2 py-1 rounded-full text-xs ${getStatusColor(booking.status)}`}>
+                      {getStatusLabel(booking.status)}
+                    </span>
                   </div>
-                  <span className={`px-2 py-1 rounded-full text-xs ${getStatusColor(booking.status)}`}>
-                    {getStatusLabel(booking.status)}
-                  </span>
+                ))
+              ) : (
+                <div className="text-center py-4 text-gray-500">
+                  Нет недавних бронирований
                 </div>
-              ))}
+              )}
             </div>
           </CardContent>
         </Card>
@@ -150,65 +241,43 @@ const AdminDashboard: React.FC = () => {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              <div className="flex items-center justify-between border-b pb-3">
-                <div className="flex items-center">
-                  <div className="w-10 h-10 bg-gray-100 rounded-md flex items-center justify-center mr-3">
-                    <Icon name="Car" className="h-5 w-5" />
+              {popularCars.length > 0 ? (
+                popularCars.map((item, index) => (
+                  <div key={index} className="flex items-center justify-between border-b pb-3 last:border-0 last:pb-0">
+                    <div className="flex items-center">
+                      <div className="w-10 h-10 bg-gray-100 rounded-md flex items-center justify-center mr-3">
+                        {item.car.imageUrl ? (
+                          <img 
+                            src={item.car.imageUrl} 
+                            alt={`${item.car.brand} ${item.car.model}`}
+                            className="w-full h-full object-cover rounded-md"
+                          />
+                        ) : (
+                          <Icon name="Car" className="h-5 w-5" />
+                        )}
+                      </div>
+                      <div>
+                        <span className="text-sm font-medium">
+                          {item.car.brand} {item.car.model}
+                        </span>
+                        <p className="text-xs text-gray-500">
+                          Занят на {Math.round(item.occupancyRate * 100)}%
+                        </p>
+                      </div>
+                    </div>
+                    <div className="w-20 h-3 bg-gray-100 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-green-500" 
+                        style={{ width: `${Math.round(item.occupancyRate * 100)}%` }} 
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-sm font-medium">BMW X5</span>
-                    <p className="text-xs text-gray-500">Занят на 85%</p>
-                  </div>
+                ))
+              ) : (
+                <div className="text-center py-4 text-gray-500">
+                  Нет данных о популярных автомобилях
                 </div>
-                <div className="w-20 h-3 bg-gray-100 rounded-full overflow-hidden">
-                  <div className="h-full bg-green-500 w-[85%]" />
-                </div>
-              </div>
-              
-              <div className="flex items-center justify-between border-b pb-3">
-                <div className="flex items-center">
-                  <div className="w-10 h-10 bg-gray-100 rounded-md flex items-center justify-center mr-3">
-                    <Icon name="Car" className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <span className="text-sm font-medium">Mercedes E-Class</span>
-                    <p className="text-xs text-gray-500">Занят на 72%</p>
-                  </div>
-                </div>
-                <div className="w-20 h-3 bg-gray-100 rounded-full overflow-hidden">
-                  <div className="h-full bg-green-500 w-[72%]" />
-                </div>
-              </div>
-              
-              <div className="flex items-center justify-between border-b pb-3">
-                <div className="flex items-center">
-                  <div className="w-10 h-10 bg-gray-100 rounded-md flex items-center justify-center mr-3">
-                    <Icon name="Car" className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <span className="text-sm font-medium">Toyota Camry</span>
-                    <p className="text-xs text-gray-500">Занят на 68%</p>
-                  </div>
-                </div>
-                <div className="w-20 h-3 bg-gray-100 rounded-full overflow-hidden">
-                  <div className="h-full bg-green-500 w-[68%]" />
-                </div>
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <div className="w-10 h-10 bg-gray-100 rounded-md flex items-center justify-center mr-3">
-                    <Icon name="Car" className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <span className="text-sm font-medium">Audi A6</span>
-                    <p className="text-xs text-gray-500">Занят на 63%</p>
-                  </div>
-                </div>
-                <div className="w-20 h-3 bg-gray-100 rounded-full overflow-hidden">
-                  <div className="h-full bg-green-500 w-[63%]" />
-                </div>
-              </div>
+              )}
             </div>
           </CardContent>
         </Card>
