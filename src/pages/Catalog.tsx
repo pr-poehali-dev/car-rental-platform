@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { cars } from '@/data/cars';
 import { Car, FilterOptions } from '@/types/car';
 import Header from '@/components/Header';
@@ -31,18 +30,41 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { Badge } from '@/components/ui/badge';
-import { useMobile } from '@/hooks/use-mobile';
+import { useIsMobile } from '@/hooks/use-mobile';
+
+// Новый хук для сохранения и восстановления состояния каталога
+const useCatalogState = () => {
+  // Восстанавливаем состояние из sessionStorage при первой загрузке
+  const getStoredState = <T,>(key: string, defaultValue: T): T => {
+    if (typeof window === 'undefined') return defaultValue;
+    const stored = sessionStorage.getItem(`catalog_${key}`);
+    return stored ? JSON.parse(stored) : defaultValue;
+  };
+
+  // Сохраняем состояние в sessionStorage
+  const saveState = (key: string, value: any) => {
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem(`catalog_${key}`, JSON.stringify(value));
+    }
+  };
+
+  return { getStoredState, saveState };
+};
 
 const Catalog: React.FC = () => {
-  const isMobile = useMobile();
+  const { getStoredState, saveState } = useCatalogState();
+  const isMobile = useIsMobile();
+  
+  // Восстанавливаем состояние из sessionStorage или используем значения по умолчанию
   const [filteredCars, setFilteredCars] = useState<Car[]>(cars);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filters, setFilters] = useState<FilterOptions>({});
-  const [currentPage, setCurrentPage] = useState(1);
-  const [sortBy, setSortBy] = useState('default');
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [searchQuery, setSearchQuery] = useState(getStoredState('searchQuery', ''));
+  const [filters, setFilters] = useState<FilterOptions>(getStoredState('filters', {}));
+  const [currentPage, setCurrentPage] = useState(getStoredState('currentPage', 1));
+  const [sortBy, setSortBy] = useState(getStoredState('sortBy', 'default'));
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>(getStoredState('viewMode', 'grid'));
   const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
   const [activeFiltersCount, setActiveFiltersCount] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
   
   // Количество элементов на странице в зависимости от режима отображения
   const carsPerPage = viewMode === 'grid' ? 6 : 4;
@@ -50,91 +72,119 @@ const Catalog: React.FC = () => {
   // Подсчет количества активных фильтров
   useEffect(() => {
     setActiveFiltersCount(Object.keys(filters).length);
+    saveState('filters', filters);
   }, [filters]);
+  
+  // Сохраняем состояние при изменении
+  useEffect(() => {
+    saveState('searchQuery', searchQuery);
+    saveState('currentPage', currentPage);
+    saveState('sortBy', sortBy);
+    saveState('viewMode', viewMode);
+  }, [searchQuery, currentPage, sortBy, viewMode]);
   
   // Фильтрация автомобилей
   useEffect(() => {
-    let result = cars;
+    // Имитация загрузки данных с сервера
+    setIsLoading(true);
     
-    // Поиск по запросу
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      result = result.filter(car => 
-        car.brand.toLowerCase().includes(query) || 
-        car.model.toLowerCase().includes(query)
-      );
-    }
-    
-    // Применение фильтров
-    if (filters.brand) {
-      result = result.filter(car => car.brand === filters.brand);
-    }
-    
-    if (filters.transmission) {
-      result = result.filter(car => car.transmission === filters.transmission);
-    }
-    
-    if (filters.fuelType) {
-      result = result.filter(car => car.fuelType === filters.fuelType);
-    }
-    
-    // Проверка на множественные значения (для обновленного фильтра)
-    if (filters.transmissionTypes && Array.isArray(filters.transmissionTypes)) {
-      result = result.filter(car => 
-        filters.transmissionTypes!.includes(car.transmission)
-      );
-    }
-    
-    if (filters.fuelTypes && Array.isArray(filters.fuelTypes)) {
-      result = result.filter(car => 
-        filters.fuelTypes!.includes(car.fuelType)
-      );
-    }
-    
-    if (filters.minPrice) {
-      result = result.filter(car => car.pricePerDay >= filters.minPrice!);
-    }
-    
-    if (filters.maxPrice) {
-      result = result.filter(car => car.pricePerDay <= filters.maxPrice!);
-    }
-    
-    if (filters.minYear) {
-      result = result.filter(car => car.year >= filters.minYear!);
-    }
-    
-    if (filters.maxYear) {
-      result = result.filter(car => car.year <= filters.maxYear!);
-    }
-    
-    // Сортировка
-    switch (sortBy) {
-      case 'price-asc':
-        result = [...result].sort((a, b) => a.pricePerDay - b.pricePerDay);
-        break;
-      case 'price-desc':
-        result = [...result].sort((a, b) => b.pricePerDay - a.pricePerDay);
-        break;
-      case 'year-desc':
-        result = [...result].sort((a, b) => b.year - a.year);
-        break;
-      case 'year-asc':
-        result = [...result].sort((a, b) => a.year - b.year);
-        break;
-      case 'rating-desc':
-        result = [...result].sort((a, b) => b.rating - a.rating);
-        break;
-      case 'name-asc':
-        result = [...result].sort((a, b) => 
-          `${a.brand} ${a.model}`.localeCompare(`${b.brand} ${b.model}`)
+    // Отложенное выполнение для имитации загрузки с сервера
+    const timer = setTimeout(() => {
+      let result = cars;
+      
+      // Поиск по запросу
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        result = result.filter(car => 
+          car.brand.toLowerCase().includes(query) || 
+          car.model.toLowerCase().includes(query)
         );
-        break;
-      default:
-        break;
-    }
+      }
+      
+      // Применение фильтров
+      if (filters.brand) {
+        result = result.filter(car => car.brand === filters.brand);
+      }
+      
+      if (filters.transmission) {
+        result = result.filter(car => car.transmission === filters.transmission);
+      }
+      
+      if (filters.fuelType) {
+        result = result.filter(car => car.fuelType === filters.fuelType);
+      }
+      
+      // Проверка на множественные значения (для обновленного фильтра)
+      if (filters.transmissionTypes && Array.isArray(filters.transmissionTypes)) {
+        result = result.filter(car => 
+          filters.transmissionTypes!.includes(car.transmission)
+        );
+      }
+      
+      if (filters.fuelTypes && Array.isArray(filters.fuelTypes)) {
+        result = result.filter(car => 
+          filters.fuelTypes!.includes(car.fuelType)
+        );
+      }
+      
+      if (filters.minPrice) {
+        result = result.filter(car => car.pricePerDay >= filters.minPrice!);
+      }
+      
+      if (filters.maxPrice) {
+        result = result.filter(car => car.pricePerDay <= filters.maxPrice!);
+      }
+      
+      if (filters.minYear) {
+        result = result.filter(car => car.year >= filters.minYear!);
+      }
+      
+      if (filters.maxYear) {
+        result = result.filter(car => car.year <= filters.maxYear!);
+      }
+      
+      if (filters.features && Array.isArray(filters.features) && filters.features.length > 0) {
+        result = result.filter(car => 
+          filters.features!.some(feature => car.features.includes(feature))
+        );
+      }
+      
+      // Сортировка
+      switch (sortBy) {
+        case 'price-asc':
+          result = [...result].sort((a, b) => a.pricePerDay - b.pricePerDay);
+          break;
+        case 'price-desc':
+          result = [...result].sort((a, b) => b.pricePerDay - a.pricePerDay);
+          break;
+        case 'year-desc':
+          result = [...result].sort((a, b) => b.year - a.year);
+          break;
+        case 'year-asc':
+          result = [...result].sort((a, b) => a.year - b.year);
+          break;
+        case 'rating-desc':
+          result = [...result].sort((a, b) => b.rating - a.rating);
+          break;
+        case 'name-asc':
+          result = [...result].sort((a, b) => 
+            `${a.brand} ${a.model}`.localeCompare(`${b.brand} ${b.model}`)
+          );
+          break;
+        default:
+          break;
+      }
+      
+      setFilteredCars(result);
+      setIsLoading(false);
+      
+      // При изменении фильтров сбрасываем страницу на первую
+      if (currentPage !== 1) {
+        setCurrentPage(1);
+      }
+    }, 300); // Небольшая задержка для имитации загрузки
     
-    setFilteredCars(result);
-    setCurrentPage(1);
+    return () => clearTimeout(timer);
   }, [searchQuery, filters, sortBy]);
   
   // Пагинация
@@ -221,11 +271,11 @@ const Catalog: React.FC = () => {
               </Badge>
             </div>
             
-            <p className="text-sm text-gray-600 mb-4 flex-1">{car.description || `${car.brand} ${car.model} ${car.year} года в отличном состоянии.`}</p>
+            <p className="text-sm text-gray-600 mb-4 flex-1">{car.description?.substring(0, 150) || `${car.brand} ${car.model} ${car.year} года в отличном состоянии.`}{car.description?.length > 150 ? '...' : ''}</p>
             
             <div className="flex justify-between items-center mt-auto">
               <div className="text-lg font-semibold">
-                {car.pricePerDay} ₽<span className="text-xs text-gray-500">/день</span>
+                {car.pricePerDay.toLocaleString()} ₽<span className="text-xs text-gray-500">/день</span>
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" asChild>
@@ -243,8 +293,68 @@ const Catalog: React.FC = () => {
     return <CarCard key={car.id} car={car} />;
   };
   
+  // Рендер скелетона для загрузки
+  const renderSkeleton = () => {
+    if (viewMode === 'list') {
+      return Array(3).fill(0).map((_, index) => (
+        <div key={index} className="flex flex-col md:flex-row animate-pulse overflow-hidden bg-white rounded-lg border shadow-sm">
+          <div className="md:w-1/3 h-48 md:h-auto bg-gray-200"></div>
+          <div className="flex flex-col flex-1 p-4 space-y-4">
+            <div className="h-6 bg-gray-200 rounded w-2/3"></div>
+            <div className="flex flex-wrap gap-2">
+              <div className="h-6 bg-gray-200 rounded w-20"></div>
+              <div className="h-6 bg-gray-200 rounded w-28"></div>
+              <div className="h-6 bg-gray-200 rounded w-24"></div>
+            </div>
+            <div className="space-y-2">
+              <div className="h-4 bg-gray-200 rounded w-full"></div>
+              <div className="h-4 bg-gray-200 rounded w-5/6"></div>
+              <div className="h-4 bg-gray-200 rounded w-4/6"></div>
+            </div>
+            <div className="flex justify-between items-center">
+              <div className="h-6 bg-gray-200 rounded w-24"></div>
+              <div className="flex gap-2">
+                <div className="h-9 bg-gray-200 rounded w-24"></div>
+                <div className="h-9 bg-gray-200 rounded w-28"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ));
+    }
+    
+    return (
+      <div className="grid gap-6 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+        {Array(6).fill(0).map((_, index) => (
+          <div key={index} className="overflow-hidden rounded-lg border bg-white animate-pulse">
+            <div className="h-48 bg-gray-200"></div>
+            <div className="p-4 space-y-3">
+              <div className="flex justify-between items-start">
+                <div className="h-6 bg-gray-200 rounded w-2/3"></div>
+                <div className="h-5 bg-gray-200 rounded w-10"></div>
+              </div>
+              <div className="flex gap-2">
+                <div className="h-6 bg-gray-200 rounded w-20"></div>
+                <div className="h-6 bg-gray-200 rounded w-20"></div>
+              </div>
+              <div className="h-7 bg-gray-200 rounded"></div>
+              <div className="flex gap-2 pt-2">
+                <div className="h-9 bg-gray-200 rounded w-full"></div>
+                <div className="h-9 bg-gray-200 rounded w-full"></div>
+              </div>
+            </div>
+          </div>
+        ))
+      </div>
+    );
+  };
+  
   // Рендер результатов поиска
   const renderSearchResults = () => {
+    if (isLoading) {
+      return renderSkeleton();
+    }
+    
     if (filteredCars.length === 0) {
       return (
         <div className="flex flex-col items-center justify-center p-8 bg-white rounded-lg border">
@@ -335,7 +445,7 @@ const Catalog: React.FC = () => {
                 
                 {getPaginationItems().map((item, index) => 
                   item === 'ellipsis' ? (
-                    <PaginationItem key={`ellipsis-${index}`}>
+                    <PaginationItem key={`ellipsis-${index}`}> 
                       <PaginationEllipsis />
                     </PaginationItem>
                   ) : (
@@ -374,7 +484,10 @@ const Catalog: React.FC = () => {
         <div className="flex gap-6">
           {/* Фильтры - боковая панель для десктопа */}
           <div className="hidden w-64 lg:block">
-            <CarFilter onFilterChange={setFilters} />
+            <CarFilter 
+              onFilterChange={setFilters} 
+              initialFilters={filters}
+            />
           </div>
           
           {/* Основной контент */}
@@ -428,7 +541,10 @@ const Catalog: React.FC = () => {
                   </SheetTrigger>
                   <SheetContent side="left" className="w-[300px] sm:w-[350px] overflow-y-auto">
                     <div className="py-4">
-                      <CarFilter onFilterChange={setFilters} />
+                      <CarFilter 
+                        onFilterChange={setFilters} 
+                        initialFilters={filters}
+                      />
                     </div>
                     <div className="flex justify-end mt-4">
                       <SheetClose asChild>
@@ -449,7 +565,7 @@ const Catalog: React.FC = () => {
       </main>
       
       <footer className="py-6 mt-12 text-center bg-white border-t">
-        <p className="text-sm text-gray-500">© 2025 АвтоПрокат. Все права защищены.</p>
+        <p className="text-sm text-gray-500"> 2025 АвтоПрокат. Все права защищены.</p>
       </footer>
     </div>
   );
