@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Car } from '@/types/admin';
 import { carsApi } from '@/lib/api';
@@ -15,6 +14,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -35,23 +35,71 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Card } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useToast } from '@/components/ui/use-toast';
+import { useToast } from '@/hooks/use-toast';
 import Icon from '@/components/ui/icon';
-import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from '@/components/ui/pagination';
+import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from '@/components/ui/pagination';
+import { Progress } from '@/components/ui/progress';
 
+// Функция для экспорта данных в CSV
+const exportToCSV = (cars: Car[]) => {
+  // Определяем заголовки
+  const headers = [
+    'ID', 'Марка', 'Модель', 'Год', 'Трансмиссия', 'Топливо', 
+    'Цена/день', 'Статус', 'Гос. номер', 'Рейтинг', 'Создан'
+  ].join(',');
+  
+  // Формируем строки данных
+  const rows = cars.map(car => [
+    car.id,
+    `"${car.brand}"`,
+    `"${car.model}"`,
+    car.year,
+    `"${car.transmission}"`,
+    `"${car.fuelType}"`,
+    car.pricePerDay,
+    `"${car.status}"`,
+    `"${car.licensePlate}"`,
+    car.rating,
+    car.createdAt
+  ].join(','));
+  
+  // Объединяем в CSV текст
+  const csvContent = `data:text/csv;charset=utf-8,${headers}\n${rows.join('\n')}`;
+  
+  // Создаем ссылку и скачиваем файл
+  const encodedUri = encodeURI(csvContent);
+  const link = document.createElement('a');
+  link.setAttribute('href', encodedUri);
+  link.setAttribute('download', `cars_export_${new Date().toISOString().split('T')[0]}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
+// Функция для экспорта данных в JSON
+const exportToJSON = (cars: Car[]) => {
+  const jsonString = JSON.stringify(cars, null, 2);
+  const blob = new Blob([jsonString], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `cars_export_${new Date().toISOString().split('T')[0]}.json`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
+// Компонент администрирования автомобилей
 const AdminCars: React.FC = () => {
   // Состояние для автомобилей и пагинации
   const [cars, setCars] = useState<Car[]>([]);
+  const [allCars, setAllCars] = useState<Car[]>([]); // Для экспорта всех данных
   const [loading, setLoading] = useState(true);
+  const [exportLoading, setExportLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [totalCars, setTotalCars] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
@@ -66,7 +114,19 @@ const AdminCars: React.FC = () => {
   
   // Состояние для модальных окон
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const [selectedCar, setSelectedCar] = useState<Car | null>(null);
+
+  // Состояние для статистики
+  const [carStats, setCarStats] = useState({
+    available: 0,
+    unavailable: 0,
+    maintenance: 0,
+    totalPrice: 0
+  });
+  
+  // Ref для отслеживания монтирования компонента
+  const isMounted = useRef(true);
   
   // Доступные бренды для фильтрации (можно получать с сервера)
   const availableBrands = ['BMW', 'Mercedes', 'Audi', 'Toyota', 'Kia', 'Hyundai'];
@@ -94,27 +154,89 @@ const AdminCars: React.FC = () => {
       const response = await carsApi.getAll(params);
       
       // Обновление состояния
-      setCars(response.data);
-      setTotalCars(response.total);
-      setTotalPages(response.totalPages);
+      if (isMounted.current) {
+        setCars(response.data);
+        setTotalCars(response.total);
+        setTotalPages(response.totalPages);
+        
+        // Обновление статистики
+        updateStats(response.data);
+      }
     } catch (err) {
       console.error('Failed to fetch cars:', err);
-      setError('Не удалось загрузить список автомобилей. Пожалуйста, попробуйте позже.');
+      if (isMounted.current) {
+        setError('Не удалось загрузить список автомобилей. Пожалуйста, попробуйте позже.');
+      }
     } finally {
-      setLoading(false);
+      if (isMounted.current) {
+        setLoading(false);
+      }
+    }
+  };  
+
+  // Получение полного списка автомобилей для экспорта
+  const fetchAllCarsForExport = async () => {
+    setExportLoading(true);
+    try {
+      const response = await carsApi.getAll({ limit: 1000 }); // Получаем больше записей для экспорта
+      setAllCars(response.data);
+      return response.data;
+    } catch (err) {
+      console.error('Failed to fetch all cars for export:', err);
+      toast({
+        title: "Ошибка",
+        description: "Не удалось загрузить все данные для экспорта",
+        variant: "destructive",
+      });
+      return [];
+    } finally {
+      setExportLoading(false);
     }
   };
+
+  // Обновление статистики
+  const updateStats = (carData: Car[]) => {
+    const stats = {
+      available: 0,
+      unavailable: 0,
+      maintenance: 0,
+      totalPrice: 0
+    };
+    
+    carData.forEach(car => {
+      if (car.status === 'available') stats.available++;
+      else if (car.status === 'unavailable') stats.unavailable++;
+      else if (car.status === 'maintenance') stats.maintenance++;
+      
+      stats.totalPrice += car.pricePerDay;
+    });
+    
+    setCarStats(stats);
+  };  
   
   // Загрузка данных при изменении параметров
   useEffect(() => {
     fetchCars();
+    
+    // Очистка при размонтировании
+    return () => {
+      isMounted.current = false;
+    };
   }, [currentPage, limit, sortBy]);
+  
+  // Инициализация isMounted
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
   
   // Функция для применения фильтров
   const applyFilters = () => {
     setCurrentPage(1); // Сброс на первую страницу
     fetchCars();
-  };
+  };  
   
   // Сброс всех фильтров
   const resetFilters = () => {
@@ -136,6 +258,12 @@ const AdminCars: React.FC = () => {
         c.id === car.id ? { ...c, status: newStatus } : c
       ));
       
+      // Обновление статистики
+      const updatedCars = cars.map(c => 
+        c.id === car.id ? { ...c, status: newStatus } : c
+      );
+      updateStats(updatedCars);
+      
       toast({
         title: newStatus === 'available' ? "Автомобиль опубликован" : "Автомобиль снят с публикации",
         description: `${car.brand} ${car.model} ${newStatus === 'available' ? 'теперь доступен для бронирования' : 'снят с публикации'}`,
@@ -156,6 +284,11 @@ const AdminCars: React.FC = () => {
     setIsDeleteDialogOpen(true);
   };
   
+  // Открытие диалога экспорта
+  const openExportDialog = () => {
+    setIsExportDialogOpen(true);
+  };
+  
   // Удаление автомобиля
   const handleDeleteCar = async () => {
     if (selectedCar) {
@@ -163,8 +296,12 @@ const AdminCars: React.FC = () => {
         await carsApi.delete(selectedCar.id);
         
         // Обновление локального состояния
-        setCars(cars.filter(car => car.id !== selectedCar.id));
+        const updatedCars = cars.filter(car => car.id !== selectedCar.id);
+        setCars(updatedCars);
         setTotalCars(prev => prev - 1);
+        
+        // Обновление статистики
+        updateStats(updatedCars);
         
         toast({
           title: "Автомобиль удален",
@@ -181,6 +318,36 @@ const AdminCars: React.FC = () => {
         setIsDeleteDialogOpen(false);
       }
     }
+  };  
+
+  // Экспорт данных
+  const handleExport = async (format: 'csv' | 'json') => {
+    // Если данные для экспорта еще не загружены
+    let dataToExport = allCars;
+    if (allCars.length === 0) {
+      dataToExport = await fetchAllCarsForExport();
+    }
+    
+    if (dataToExport.length === 0) {
+      toast({
+        title: "Ошибка экспорта",
+        description: "Нет данных для экспорта",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    if (format === 'csv') {
+      exportToCSV(dataToExport);
+    } else {
+      exportToJSON(dataToExport);
+    }
+    
+    setIsExportDialogOpen(false);
+    toast({
+      title: "Экспорт выполнен",
+      description: `Данные успешно экспортированы в формате ${format.toUpperCase()}`,
+    });
   };
   
   // Получение цвета для бейджа статуса
@@ -224,14 +391,74 @@ const AdminCars: React.FC = () => {
   
   return (
     <div>
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex flex-wrap justify-between items-center gap-4 mb-6">
         <h1 className="text-2xl font-bold">Управление автомобилями</h1>
-        <Button asChild>
-          <Link to="/admin/cars/new">
-            <Icon name="Plus" className="h-4 w-4 mr-2" />
-            Добавить автомобиль
-          </Link>
-        </Button>
+        <div className="flex flex-wrap gap-3">
+          <Button onClick={openExportDialog} variant="outline">
+            <Icon name="Download" className="h-4 w-4 mr-2" />
+            Экспорт
+          </Button>
+          <Button asChild>
+            <Link to="/admin/cars/new">
+              <Icon name="Plus" className="h-4 w-4 mr-2" />
+              Добавить автомобиль
+            </Link>
+          </Button>
+        </div>
+      </div>
+      
+      {/* Карточки статистики */}
+      <div className="grid gap-4 mb-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Всего автомобилей</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{totalCars}</div>
+            <div className="mt-2 h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div className="bg-primary h-full" style={{ width: '100%' }}></div>
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Доступны</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">{carStats.available}</div>
+            <Progress 
+              value={totalCars ? (carStats.available / totalCars) * 100 : 0} 
+              className="mt-2 bg-green-100" 
+            />
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Скрыты</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-gray-600">{carStats.unavailable}</div>
+            <Progress 
+              value={totalCars ? (carStats.unavailable / totalCars) * 100 : 0} 
+              className="mt-2 bg-gray-100" 
+            />
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">На обслуживании</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-amber-600">{carStats.maintenance}</div>
+            <Progress 
+              value={totalCars ? (carStats.maintenance / totalCars) * 100 : 0} 
+              className="mt-2 bg-amber-100" 
+            />
+          </CardContent>
+        </Card>
       </div>
       
       <Card className="p-4 mb-6">
@@ -386,6 +613,7 @@ const AdminCars: React.FC = () => {
                             <Icon name={car.status === 'available' ? "EyeOff" : "Eye"} className="h-4 w-4 mr-2" />
                             {car.status === 'available' ? 'Снять с публикации' : 'Опубликовать'}
                           </DropdownMenuItem>
+                          <DropdownMenuSeparator />
                           <DropdownMenuItem 
                             onClick={() => openDeleteDialog(car)}
                             className="text-red-600 flex items-center"
@@ -471,6 +699,62 @@ const AdminCars: React.FC = () => {
             </Button>
             <Button variant="destructive" onClick={handleDeleteCar}>
               Удалить
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Диалог экспорта данных */}
+      <Dialog open={isExportDialogOpen} onOpenChange={setIsExportDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Экспорт данных</DialogTitle>
+            <DialogDescription>
+              Выберите формат для экспорта данных об автомобилях.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <Button
+              onClick={() => handleExport('csv')}
+              className="w-full"
+              disabled={exportLoading}
+              variant="outline"
+            >
+              {exportLoading ? (
+                <>
+                  <Icon name="Loader2" className="h-4 w-4 mr-2 animate-spin" />
+                  Загрузка...
+                </>
+              ) : (
+                <>
+                  <Icon name="FileText" className="h-4 w-4 mr-2" />
+                  Экспорт в CSV
+                </>
+              )}
+            </Button>
+            
+            <Button
+              onClick={() => handleExport('json')}
+              className="w-full"
+              disabled={exportLoading}
+              variant="outline"
+            >
+              {exportLoading ? (
+                <>
+                  <Icon name="Loader2" className="h-4 w-4 mr-2 animate-spin" />
+                  Загрузка...
+                </>
+              ) : (
+                <>
+                  <Icon name="FileJson" className="h-4 w-4 mr-2" />
+                  Экспорт в JSON
+                </>
+              )}
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setIsExportDialogOpen(false)}>
+              Отмена
             </Button>
           </DialogFooter>
         </DialogContent>
