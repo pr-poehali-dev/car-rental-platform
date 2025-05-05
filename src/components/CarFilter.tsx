@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { FilterOptions } from '@/types/car';
 import { getBrands, getFuelTypes, getTransmissionTypes } from '@/data/cars';
@@ -33,7 +32,7 @@ import {
   SheetClose,
 } from '@/components/ui/sheet';
 import { Separator } from '@/components/ui/separator';
-import { useMobile } from '@/hooks/use-mobile';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 
 interface CarFilterProps {
@@ -51,7 +50,7 @@ const CarFilter: React.FC<CarFilterProps> = ({
   const brands = useMemo(() => getBrands(), []);
   const transmissionTypes = useMemo(() => getTransmissionTypes(), []);
   const fuelTypes = useMemo(() => getFuelTypes(), []);
-  const isMobile = useMobile();
+  const isMobile = useIsMobile();
   
   // Получаем текущий год для установки максимального значения
   const currentYear = useMemo(() => new Date().getFullYear(), []);
